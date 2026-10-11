@@ -1,0 +1,3 @@
+C++ supports object oriented programming.
+Classes and objects are important concepts.
+C++ supports functions and constructors.

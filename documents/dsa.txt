@@ -1,0 +1,5 @@
+Stack is a linear data structure.
+Stack follows the LIFO principle.
+Stack can be implemented using arrays.
+Stack is used in many applications.
+objects

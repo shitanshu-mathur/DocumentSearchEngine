@@ -1,0 +1,4 @@
+Python is a programming language.
+Python supports lists and dictionaries.
+Python is used for automation.
+objects
