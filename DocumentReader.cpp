@@ -1,13 +1,12 @@
 #include "DocumentReader.h"
+#include "TextProcessor.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
 
 bool DocumentReader::loadDocument(const std::string& filepath) {
-    // Attempt to open the file using standard C++ ifstream
     std::ifstream file(filepath);
 
-    // Gracefully handle missing or unreadable files
     if (!file.is_open()) {
         std::cerr << "[WARNING] Could not open file: \"" << filepath 
                   << "\". File might be missing or unreadable. Skipping.\n";
@@ -18,19 +17,23 @@ bool DocumentReader::loadDocument(const std::string& filepath) {
     doc.id = static_cast<int>(documents.size());
     doc.filepath = filepath;
 
-    // Read the file line by line to preserve exact line numbers for word location tracking
     std::string line;
+    int lineNum = 0;
     while (std::getline(file, line)) {
-        // Strip trailing \r in case of Windows CRLF line endings
+        lineNum++;
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
         }
         doc.lines.push_back(line);
         doc.content += line + "\n";
+
+        std::vector<std::string> lineTokens = TextProcessor::tokenize(line);
+        for (const auto& token : lineTokens) {
+            doc.tokens.push_back(token);
+            doc.tokenLines.push_back(lineNum);
+        }
     }
     file.close();
-
-    // Check for empty files
     if (doc.content.empty()) {
         std::cout << "[INFO] File \"" << filepath << "\" is empty. Registered as Doc ID " 
                   << doc.id << " with no searchable words.\n";
@@ -40,7 +43,7 @@ bool DocumentReader::loadDocument(const std::string& filepath) {
     idToFilename[doc.id] = filepath;
 
     std::cout << "[SUCCESS] Loaded \"" << filepath << "\" as Document ID: " << doc.id 
-              << " (" << doc.lines.size() << " lines)\n";
+              << " (" << doc.lines.size() << " lines, " << doc.tokens.size() << " tokens)\n";
     return true;
 }
 
@@ -56,6 +59,15 @@ int DocumentReader::loadDocuments(const std::vector<std::string>& filepaths) {
 
 const std::vector<Document>& DocumentReader::getDocuments() const {
     return documents;
+}
+
+const Document* DocumentReader::getDocument(int docId) const {
+    for (const auto& doc : documents) {
+        if (doc.id == docId) {
+            return &doc;
+        }
+    }
+    return nullptr;
 }
 
 std::string DocumentReader::getFilename(int docId) const {
@@ -94,4 +106,9 @@ const std::vector<std::string>& DocumentReader::getDocumentLines(int docId) cons
         }
     }
     return emptyLines;
+}
+
+void DocumentReader::clear() {
+    documents.clear();
+    idToFilename.clear();
 }
