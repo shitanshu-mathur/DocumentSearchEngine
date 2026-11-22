@@ -1,149 +1,81 @@
+#include "SearchEngine.h"
 #include <iostream>
-#include <fstream>
-#include <string>
 #include <vector>
-#include <unordered_map>
-#include <cctype>
+#include <string>
 
-using namespace std;
-
-// Store each word with its documents and positions
-using InvertedIndex =
-    unordered_map<string, unordered_map<string, vector<int>>>;
-
-// Convert text into lowercase words
-vector<string> getWords(string text) {
-    vector<string> words;
-    string word = "";
-
-    for (char ch : text) {
-        unsigned char c = static_cast<unsigned char>(ch);
-
-        if (isalnum(c)) {
-            word += static_cast<char>(tolower(c));
-        } else {
-            if (word != "") {
-                words.push_back(word);
-                word = "";
-            }
+#ifdef _WIN32
+#include <windows.h>
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+// Enable ANSI/VT100 escape code processing on Windows at program start.
+// This must be done before any output so that ANSI color codes render
+// correctly in both the VS Code integrated terminal and Windows Terminal.
+static void enableWindowsAnsi() {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE && hOut != NULL) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
         }
     }
-
-    if (word != "") {
-        words.push_back(word);
-    }
-
-    return words;
-}
-
-// Read a file and store its words in the index
-void createIndex(string filename, InvertedIndex &index) {
-    ifstream file(filename);
-
-    if (!file.is_open()) {
-        cout << "Unable to open " << filename << endl;
-        return;
-    }
-
-    string line;
-    int pos = 0;
-
-    while (getline(file, line)) {
-        vector<string> words = getWords(line);
-
-        for (string word : words) {
-            index[word][filename].push_back(pos);
-            pos++;
+    // Also enable on CONOUT$ directly (handles VS Code ConPTY scenarios)
+    HANDLE hConOut = CreateFileA("CONOUT$", GENERIC_READ | GENERIC_WRITE,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                 NULL, OPEN_EXISTING, 0, NULL);
+    if (hConOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hConOut, &dwMode)) {
+            SetConsoleMode(hConOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
         }
-    }
-
-    file.close();
-}
-
-// Display all words, documents, frequencies and positions
-void showIndex(const InvertedIndex &index) {
-    cout << "\n========== INVERTED INDEX ==========\n";
-
-    for (const auto &word : index) {
-        cout << "\nWord: " << word.first << endl;
-
-        for (const auto &doc : word.second) {
-            cout << "Document: " << doc.first << endl;
-            cout << "Term Frequency: "
-                 << doc.second.size() << endl;
-
-            cout << "Positions: ";
-
-            for (int p : doc.second) {
-                cout << p << " ";
-            }
-
-            cout << endl;
-        }
+        CloseHandle(hConOut);
     }
 }
+#endif
 
-// Search for a word entered by the user
-void searchWord(const InvertedIndex &index, string query) {
-    vector<string> words = getWords(query);
-
-    if (words.size() != 1) {
-        cout << "Please enter only one word." << endl;
-        return;
-    }
-
-    string word = words[0];
-
-    cout << "\n========== SEARCH RESULTS ==========\n";
-    cout << "Word: " << word << endl;
-
-    auto it = index.find(word);
-
-    if (it == index.end()) {
-        cout << "Word not found in any document." << endl;
-        return;
-    }
-
-    for (const auto &doc : it->second) {
-        cout << "\nDocument: " << doc.first << endl;
-        cout << "Term Frequency: "
-             << doc.second.size() << endl;
-
-        cout << "Positions: ";
-
-        for (int p : doc.second) {
-            cout << p << " ";
-        }
-
-        cout << endl;
-    }
-}
-
-int main() {
-    vector<string> files = {
-        "documents/dsa.txt",
+int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    enableWindowsAnsi();
+#endif
+    std::vector<std::string> sampleDocuments = {
+        "documents/algorithms.txt",
+        "documents/computer_networks.txt",
         "documents/cpp.txt",
-        "documents/python.txt"
+        "documents/database_systems.txt",
+        "documents/data_structures.txt",
+        "documents/dsa.txt",
+        "documents/oop.txt",
+        "documents/operating_systems.txt",
+        "documents/python.txt",
+        "documents/web_technologies.txt"
     };
 
-    InvertedIndex index;
+    SearchEngine engine;
 
-    // Create the index for all documents
-    for (string file : files) {
-        createIndex(file, index);
+    if (!engine.initialize(sampleDocuments)) {
+        std::cerr << "\nApplication failed to start because documents could not be loaded.\n";
+        return 1;
     }
 
-    // Show the complete index
-    showIndex(index);
+    if (argc > 1) {
+        std::string query;
+        for (int i = 1; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--search" || arg == "-s") {
+                continue;
+            }
+            if (!query.empty()) {
+                query += " ";
+            }
+            query += arg;
+        }
+        if (!query.empty()) {
+            engine.search(query);
+            return 0;
+        }
+    }
 
-    // Take a word from the user
-    string query;
-
-    cout << "\nEnter a word to search: ";
-    cin >> query;
-
-    // Display the matching documents
-    searchWord(index, query);
+    engine.run();
 
     return 0;
 }
