@@ -2,58 +2,115 @@
 #include "TextProcessor.h"
 #include <map>
 
-void InvertedIndex::addDocument(int docId, const std::vector<std::string>& documentLines) {
-    // Map each unique word in this document to the line numbers where it occurs
-    std::map<std::string, std::vector<int>> wordToLines;
+void InvertedIndex::addDocument(int docId,
+                                const std::vector<std::string>& documentLines,
+                                const std::vector<std::string>& tokens,
+                                const std::vector<int>& tokenLines) {
+    if (docId >= static_cast<int>(docTotalWords.size())) {
+        docTotalWords.resize(docId + 1, 0);
+    }
+    docTotalWords[docId] = static_cast<int>(tokens.size());
 
-    for (size_t i = 0; i < documentLines.size(); ++i) {
-        int lineNum = static_cast<int>(i + 1); // 1-based line number
-        std::vector<std::string> tokens = TextProcessor::tokenize(documentLines[i]);
+    struct WordStats {
+        int totalOccurrences = 0;
+        std::vector<int> lineNumbers;
+        std::vector<int> positions;
+    };
+    std::map<std::string, WordStats> docWordStats;
 
-        for (const std::string& word : tokens) {
-            std::vector<int>& lines = wordToLines[word];
-            // Avoid duplicate line numbers if a word appears multiple times on the same line
-            if (lines.empty() || lines.back() != lineNum) {
-                lines.push_back(lineNum);
-            }
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const std::string& token = tokens[i];
+        int lineNum = (i < tokenLines.size()) ? tokenLines[i] : 1;
+        int pos = static_cast<int>(i);
+
+        if (TextProcessor::isStopWord(token)) {
+            continue;
+        }
+
+        std::string root = TextProcessor::stemWord(token);
+        if (root.empty()) {
+            continue;
+        }
+
+        WordStats& stats = docWordStats[root];
+        stats.totalOccurrences++;
+        stats.positions.push_back(pos);
+        if (stats.lineNumbers.empty() || stats.lineNumbers.back() != lineNum) {
+            stats.lineNumbers.push_back(lineNum);
         }
     }
 
-    // Insert into the inverted index
-    for (const auto& entry : wordToLines) {
-        const std::string& word = entry.first;
-        const std::vector<int>& lines = entry.second;
+    for (const auto& entry : docWordStats) {
+        const std::string& root = entry.first;
+        const WordStats& stats = entry.second;
 
         DocumentMatch match;
         match.docId = docId;
-        match.lineNumbers = lines;
+        match.totalOccurrences = stats.totalOccurrences;
+        match.lineNumbers = stats.lineNumbers;
+        match.positions = stats.positions;
 
-        index[word].push_back(match);
+        index[root].push_back(match);
     }
+
+    PronounResolver::resolveDocument(docId, documentLines, contextualIndex);
+}
+
+void InvertedIndex::addDocument(int docId, const std::vector<std::string>& documentLines) {
+    std::vector<std::string> tokens;
+    std::vector<int> tokenLines;
+
+    for (size_t i = 0; i < documentLines.size(); ++i) {
+        int lineNum = static_cast<int>(i + 1);
+        std::vector<std::string> lineTokens = TextProcessor::tokenize(documentLines[i]);
+        for (const auto& t : lineTokens) {
+            tokens.push_back(t);
+            tokenLines.push_back(lineNum);
+        }
+    }
+
+    addDocument(docId, documentLines, tokens, tokenLines);
 }
 
 std::vector<DocumentMatch> InvertedIndex::getMatches(const std::string& word) const {
-    auto it = index.find(word);
+    std::string cleaned = TextProcessor::cleanToken(word);
+    std::string root = TextProcessor::stemWord(cleaned);
+    auto it = index.find(root);
     if (it != index.end()) {
+        return it->second;
+    }
+    if (root != cleaned) {
+        auto itClean = index.find(cleaned);
+        if (itClean != index.end()) {
+            return itClean->second;
+        }
+    }
+    return {};
+}
+
+std::vector<ContextualMatch> InvertedIndex::getContextualMatches(const std::string& word) const {
+    std::string cleaned = TextProcessor::cleanToken(word);
+    std::string root = TextProcessor::stemWord(cleaned);
+    auto it = contextualIndex.find(root);
+    if (it != contextualIndex.end()) {
         return it->second;
     }
     return {};
 }
 
 std::vector<int> InvertedIndex::getDocumentIds(const std::string& word) const {
-    auto it = index.find(word);
-    if (it == index.end()) {
-        return {};
-    }
+    std::vector<DocumentMatch> matches = getMatches(word);
     std::vector<int> docIds;
-    for (const auto& match : it->second) {
+    for (const auto& match : matches) {
         docIds.push_back(match.docId);
     }
     return docIds;
 }
 
 bool InvertedIndex::hasWord(const std::string& word) const {
-    return index.find(word) != index.end();
+    std::string cleaned = TextProcessor::cleanToken(word);
+    std::string root = TextProcessor::stemWord(cleaned);
+    return index.find(root) != index.end() || index.find(cleaned) != index.end();
 }
 
 size_t InvertedIndex::getVocabularySize() const {
@@ -64,6 +121,19 @@ const std::map<std::string, std::vector<DocumentMatch>>& InvertedIndex::getIndex
     return index;
 }
 
+const std::map<std::string, std::vector<ContextualMatch>>& InvertedIndex::getContextualIndexMap() const {
+    return contextualIndex;
+}
+
+int InvertedIndex::getDocumentWordCount(int docId) const {
+    if (docId >= 0 && docId < static_cast<int>(docTotalWords.size())) {
+        return docTotalWords[docId];
+    }
+    return 0;
+}
+
 void InvertedIndex::clear() {
     index.clear();
+    contextualIndex.clear();
+    docTotalWords.clear();
 }
